@@ -1,0 +1,51 @@
+* Peak current-mode boost converter  (Iref=0.8 A, mc=0.0 A/s)
+.title CMC boost Iref=0.8 mc=0.0
+
+* ---- power stage ----
+Vin  in   0   dc 10.0
+Lind in   sw  0.001 ic=0
+* ideal-ish MOSFET as voltage-controlled switch (gate node = q)
+Sw   sw   0   q 0  swmod
+Dout sw   out dmod
+Cout out  0   4e-06 ic=0
+Rload out 0   20.0
+
+.model swmod sw(vt=0.5 vh=0.05 ron=0.01 roff=1e6)
+.model dmod  d(is=1e-14 n=1 rs=0.01)
+
+* ---- current sense: sensed voltage = i(Lind)*Rsense ----
+Bsense isns 0 v = i(Lind)*1.0
+
+* ---- clock: 10 kHz, narrow SET pulse (2% duty) ----
+Vclk clk 0 PULSE(0 1 0 1n 1n 2.0000000000000003e-06 0.0001)
+
+* ---- compensating sawtooth ramp, reset each period (slope mc) ----
+* integrate (1) but reset on clock: approximate with a sawtooth via PULSE
+Vramp rmp 0 PULSE(0 0.0 0 9.8e-05 1n 1n 0.0001)
+
+* ---- compensated reference: (Iref)*Rsense - ramp ----
+Bref ref 0 v = 0.8 - v(rmp)
+
+* ---- comparator: RESET high when sensed current exceeds reference ----
+Bcmp rst 0 v = ( v(isns) > v(ref) ) ? 1 : 0
+
+* ---- SR latch (set=clk, reset=rst), Q=q -> gate ----
+* Q = NOR(reset, Qbar); Qbar = NOR(set, Q). Implement with behavioural
+* sources + small RC memory to give a clean bistable.
+Bq    qd  0 v = ( (v(rst) > 0.5) || (v(qbar) > 0.5) ) ? 0 : 1
+Rq    qd  q 100
+Cq    q   0 1n ic=0
+Bqb   qbd 0 v = ( (v(clk) > 0.5) || (v(q) > 0.5) ) ? 0 : 1
+Rqb   qbd qbar 100
+Cqb   qbar 0 1n ic=0
+
+.ic v(q)=1 v(qbar)=0
+
+.control
+set noaskquit
+tran 50n 0.04 uic
+* sample inductor current at clock instants (just before each SET) and
+* write the full transient too
+wrdata /home/victus/Papers/Victus_Pardus_0004_PowerConv_Dynamics/Nonlinear_Dynamics/code/../data/boost_test.raw i(Lind) v(out) v(q)
+.endc
+.end
